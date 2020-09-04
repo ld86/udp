@@ -69,6 +69,7 @@ func main() {
 		}
 		reader := bufio.NewReader(os.Stdin)
 		host, _ := reader.ReadString('\n')
+		host = strings.Trim(host, "\n")
 		go func(conn net.PacketConn) {
 			for {
 				var b [256]byte
@@ -77,6 +78,7 @@ func main() {
 			}
 		}(conn)
 		for {
+			fmt.Println(host)
 			SendHi(conn, host)
 			time.Sleep(1 * time.Second)
 		}
