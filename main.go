@@ -65,11 +65,11 @@ func main() {
 	if len(os.Args) > 1 {
 		for _, host := range os.Args[1:] {
 			SendHi(conn, host)
-
 		}
 		reader := bufio.NewReader(os.Stdin)
 		host, _ := reader.ReadString('\n')
 		host = strings.Trim(host, "\n")
+
 		go func(conn net.PacketConn) {
 			for {
 				var b [256]byte
@@ -77,7 +77,12 @@ func main() {
 				fmt.Printf("%d %s %s\n", n, addr, strings.Trim(string(b[:]), "\r\n "))
 			}
 		}(conn)
+
 		for {
+			for _, host := range os.Args[1:] {
+				fmt.Println(host)
+				SendHi(conn, host)
+			}
 			fmt.Println(host)
 			SendHi(conn, host)
 			time.Sleep(1 * time.Second)
