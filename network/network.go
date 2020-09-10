@@ -2,6 +2,7 @@ package network
 
 import (
 	"encoding/json"
+	"fmt"
 	"log"
 	"net"
 	"os"
@@ -10,41 +11,57 @@ import (
 )
 
 type OutcomeMessage struct {
-	DestinationIP string
-	Payload       []byte
+	DstAddr string
+	Payload []byte
 }
 
 type IncomeMessage struct {
-	SourceLocalIP  string
-	SourceGlobalIP string
-	Payload        []byte
+	SrcLocalAddr  []string
+	SrcGlobalAddr string
+	Payload       []byte
 }
 
 type Message struct {
-	LocalIP string
-	Payload []byte
+	LocalAddr []string
+	Payload   []byte
 }
 
 type Network struct {
 	serverConn      net.PacketConn
 	numberOfPackets sync.Map
+	localAddr       []string
 
 	sent     chan OutcomeMessage
 	received chan IncomeMessage
 }
 
-func NewNetwork() *Network {
-	return &Network{
+func NewNetwork() (*Network, error) {
+	localIPs, err := localIPs()
+
+	if err != nil {
+		return nil, err
+	}
+
+	network := &Network{
 		serverConn: createPacketConn(),
 		sent:       make(chan OutcomeMessage),
 		received:   make(chan IncomeMessage),
+		localAddr:  make([]string, 0),
 	}
+
+	port := network.serverConn.LocalAddr().(*net.UDPAddr).Port
+	for _, localIP := range localIPs {
+		localAddr := fmt.Sprintf("%s:%d", localIP, port)
+		network.localAddr = append(network.localAddr, localAddr)
+	}
+
+	return network, nil
 }
 
 func (network *Network) Send(udpAddr string, payload []byte) {
 	outcomeMessage := OutcomeMessage{
-		DestinationIP: udpAddr,
-		Payload:       payload,
+		DstAddr: udpAddr,
+		Payload: payload,
 	}
 	network.sent <- outcomeMessage
 }
@@ -70,10 +87,10 @@ func (network *Network) handleSent() {
 		select {
 		case outcomeMessage := <-network.sent:
 			message := &Message{
-				LocalIP: network.serverConn.LocalAddr().String(),
-				Payload: outcomeMessage.Payload,
+				LocalAddr: network.localAddr,
+				Payload:   outcomeMessage.Payload,
 			}
-			network.marshalAndSend(outcomeMessage.DestinationIP, message)
+			network.marshalAndSend(outcomeMessage.DstAddr, message)
 		}
 	}
 }
@@ -88,9 +105,9 @@ func (network *Network) handleReceived() {
 		sourceGlobalIP := remoteAddr.String()
 
 		incomeMessage := IncomeMessage{
-			SourceLocalIP:  message.LocalIP,
-			SourceGlobalIP: sourceGlobalIP,
-			Payload:        message.Payload,
+			SrcLocalAddr:  message.LocalAddr,
+			SrcGlobalAddr: sourceGlobalIP,
+			Payload:       message.Payload,
 		}
 
 		network.received <- incomeMessage
@@ -109,6 +126,7 @@ func createPacketConn() net.PacketConn {
 	}
 
 	udpAddr, err := net.ResolveUDPAddr("udp", ":0")
+
 	if err != nil && udpAddr.IP != nil {
 		log.Fatalf("Cannot resolve addr, %s", err)
 	}
@@ -128,4 +146,54 @@ func createPacketConn() net.PacketConn {
 	}
 
 	return conn
+}
+
+func localIPs() ([]string, error) {
+	interfaces, err := net.Interfaces()
+
+	result := make([]string, 0)
+
+	if err != nil {
+		return nil, err
+	}
+
+	for _, i := range interfaces {
+		if i.Flags&net.FlagUp == 0 {
+			continue
+		}
+		if i.Flags&net.FlagLoopback != 0 {
+			continue
+		}
+
+		addrs, err := i.Addrs()
+
+		if err != nil {
+			return nil, err
+		}
+
+		for _, addr := range addrs {
+			var ip net.IP
+
+			switch v := addr.(type) {
+			case *net.IPNet:
+				ip = v.IP
+			case *net.IPAddr:
+				ip = v.IP
+			}
+
+			if ip == nil || ip.IsLoopback() {
+				continue
+			}
+
+			ip = ip.To4()
+
+			if ip == nil {
+				continue
+			}
+
+			result = append(result, ip.String())
+		}
+	}
+
+	return result, nil
 }

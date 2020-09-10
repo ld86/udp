@@ -7,7 +7,12 @@ import (
 )
 
 func main() {
-	node := node.NewNode()
+	node, err := node.NewNode()
+
+	if err != nil {
+		panic(err)
+	}
+
 	if len(os.Args) == 1 {
 		node.Serve()
 	} else {
